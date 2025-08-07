@@ -3,38 +3,52 @@ import mmap
 import os
 import struct
 import time
+import textwrap
 
 # Common Constants
-CRU_SIZE = 0x1000
+REG_SIZE = 0x1000
 
 CRU_BASE            = 0xFD7C0000
 CRU_BIGCORE0_BASE   = 0xFD810000
 CRU_BIGCORE1_BASE   = 0xFD812000
 CRU_DSU_BASE        = 0xFD818000
-CRU_DDRPHY0_BASE    = 0xFD800000 # reading locks device
-CRU_DDRPHY1_BASE    = 0xFD804000 # reading locks device
-CRU_DDRPHY2_BASE    = 0xFD808000 # reading locks device
-CRU_DDRPHY3_BASE    = 0xFD80C000 # reading locks device
+CRU_DDRPHY0_BASE    = 0xFD800000 # reading devmem locks device
+CRU_DDRPHY1_BASE    = 0xFD804000 # reading devmem locks device
+CRU_DDRPHY2_BASE    = 0xFD808000 # reading devmem locks device
+CRU_DDRPHY3_BASE    = 0xFD80C000 # reading devmem locks device
 
 GRF_BIGCORE0_BASE   = 0xFD590000
 GRF_BIGCORE1_BASE   = 0xFD592000
 GRF_LITCORE_BASE    = 0xFD594000
 GRF_DSU_BASE        = 0xFD598000
-GRF_GPU_BASE        = 0xFD5A0000 # reading when gpu_policy != always_on locks device
-GRF_NPU_BASE        = 0xFD5A2000 # reading when npu pvtpll not active locks device
+GRF_GPU_BASE        = 0xFD5A0000 # reading devmem when gpu_policy != always_on locks device
+GRF_NPU_BASE        = 0xFD5A2000 # reading devmem when npu pvtpll not active locks device
 GRF_DDR01_BASE      = 0xFD59C000
 GRF_DDR23_BASE      = 0xFD59D000
 
 XIN_OSC0_FREQ       = 24        # RK3588 TRM
-DEEPSLOW_FREQ       = 0.032     # arbirary value
+DEEPSLOW_FREQ       = 0.032768  # RK3588 TRM
 CLEAN_FREQ          = 100       # arbirary value
 
-AUPLL_FREQ          = 786       # mmm tool
-CPLL_FREQ           = 1500      # mmm tool
-GPLL_FREQ           = 1188      # mmm tool
-NPLL_FREQ           = 850       # mmm tool
-SPLL_FREQ           = 702       # rk3588 dts
-V0PLL_FREQ          = 1188      # mmm tool
+AUPLL_FREQ          = 1572.9    # RK3588 Registers  [m=262, p=2, s=1, k=9437]
+CPLL_FREQ           = 1500      # RK3588 Registers  [m=250, p=2, s=1, k=0]
+GPLL_FREQ           = 1188      # RK3588 Registers  [m=425, p=2, s=1, k=0]
+PPLL_FREQ           = 2200      # RK3588 Registers  [m=550, p=3, s=1, k=0]   
+NPLL_FREQ           = 1700      # RK3588 Registers  [m=425, p=3, s=1]
+SPLL_FREQ           = 702       # rk3588 dts; can't read from devmem
+V0PLL_FREQ          = 1188      # RK3588 Registers  [m=198, p=2, s=1, k=0]
+
+                                # FRACPLL #
+                                #   FFVCO = ((m + k / 65536) * FFIN) / p
+                                #   FFOUT = ((m + k / 65536) * FFIN) / (p * 2s)
+
+                                # INTPLL #
+                                #   FFVCO = (m * FFIN) / p
+                                #   FFOUT = (m * FFIN) / (p * 2s)
+                                
+                                # DDRPLL #
+                                #   FFVCO = ((m + k / 65536) * 2 * FFIN) / p
+                                #   FFOUT = ((m + k / 65536) * 2 * FFIN) / (p * 2s)
 
 MEMORY_MAP = {
     "CRU_BASE": 0xFD7C0000,
@@ -85,7 +99,7 @@ class Registers:
         os.close(self.mem_fd)
 
 reg_mem = {
-    key: Registers(addr, CRU_SIZE)
+    key: Registers(addr, REG_SIZE)
     for key, addr in MEMORY_MAP.items()
 }
 
@@ -248,7 +262,7 @@ def set_gpu_power_policy_always_on():
 
 def draw_header(stdscr, current_tab, tabs):
     stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-    stdscr.addstr(0, 0, "RK3588 Clock Config Tool by SkatterBencher, v0.7 - Press 'q' to quit | Left/Right to switch tabs")
+    stdscr.addstr(0, 0, "RK3588 OC Tool by SkatterBencher, v0.8 - Press 'q' to quit | Left/Right to switch tabs")
     stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
     stdscr.move(1, 0)
@@ -270,8 +284,7 @@ def draw_header(stdscr, current_tab, tabs):
 
 def draw_tab_content(stdscr, current_tab, mem, selected, scroll_offset, message, lpll_freq=0, b0pll_freq=0,b1pll_freq=0):
     if current_tab == 0:
-        # General Info tab placeholder for now
-        draw_coming_soon(stdscr, message, offset=3)
+        draw_general_info(stdscr, message="", offset=3)
     elif current_tab == 1:
         draw_bigcore0_ui(stdscr, mem, selected, message, scroll_offset)
     elif current_tab == 2:
@@ -284,9 +297,9 @@ def draw_tab_content(stdscr, current_tab, mem, selected, scroll_offset, message,
         draw_gpu_ui(stdscr, mem, selected, message, scroll_offset)
     elif current_tab == 6:
         draw_npu_ui(stdscr, mem, selected, message, scroll_offset)
+    #elif current_tab == 7:
+    #    draw_dram_ui(stdscr, mem, selected, message, scroll_offset)     // devmem read bus errors cause system freeze
     elif current_tab == 7:
-        draw_dram_ui(stdscr, mem, selected, message, scroll_offset)
-    else:
         draw_coming_soon(stdscr, message, offset=3)
         return scroll_offset
 
@@ -305,6 +318,52 @@ def draw_coming_soon(stdscr, message=None, offset=3):
 
     stdscr.addstr(curses.LINES - 1, 0, message[0])
     stdscr.clrtoeol()
+
+def draw_general_info(stdscr, message="", offset=3):
+    paragraphs = [
+        "",
+        "------------------------------------",
+        "## Welcome to the RK3588 OC Tool! ##",
+        "------------------------------------",
+        "",
+        "",        
+        "This tool provides access to some (but not all) of the clock configuration registers of the Rockchip RK3588 SoC. It is a work in progress and there may be some bugs.",
+        "",
+        "",
+        "It currently supports BigCore, LittleCore, DSU, and GPU configuration. NPU PVTPLL is not working as is DRAM. You can check the source code for comments.",
+        "",
+        "",
+        "You can refer to the Rockchip RK3588 Technical Reference Manual (TRM) for more details about the register configuration.",        
+        "",
+        "",
+        "Note that this tool is intended for experienced users only. You can brick your device with the wrong settings. Use at your own risk!",
+        "",
+        "",
+        "Enjoy tuning your RK3588! - SkatterBencher",
+        ""
+    ]
+
+    max_width = int(curses.COLS * 0.80)
+    start_row = offset
+    row = start_row
+
+    for paragraph in paragraphs:
+        if paragraph == "":
+            row += 1
+            continue
+
+        wrapped_lines = textwrap.wrap(paragraph, width=max_width)
+        
+        for line in wrapped_lines:
+            x = (curses.COLS - max_width) // 2 + max((max_width - len(line)) // 2, 0)
+            stdscr.addstr(row, x, line)
+            row += 1
+
+    stdscr.move(curses.LINES - 1, 0)
+    stdscr.clrtoeol()
+
+    if message:
+        stdscr.addstr(curses.LINES - 1, 0, str(message))
 
 def draw_bigcore0_ui(stdscr, mem, selected, message, scroll_offset):
     FIELD_NAME_COL_WIDTH = 25
@@ -353,6 +412,8 @@ def draw_bigcore0_ui(stdscr, mem, selected, message, scroll_offset):
             ("bigcore0_gpll_div", BIGCORE0_CLKSEL_CON00, (1, 5), "int", None, (0, 31)),
             ("bigcore0_mux_sel", BIGCORE0_CLKSEL_CON00, (6, 7), "enum",
              {"slow": 0b00, "gpll": 0b01, "b0pll": 0b10}),
+            # ("bigcore0_pvtpll_sel", BIGCORE0_CLKSEL_CON01, (14, 14), "enum",  // requires updating of cal_cnt register (0x8)
+            #  {"bigcore0_mux": 0b0, "xin_osc0_func": 0b1,}),                   // no logic implemented
         ]),
         ("## core configuration ##", "CRU_BIGCORE0_BASE", [
             ("b0_uc_div", BIGCORE0_CLKSEL_CON00, (8, 12), "int", None, (0, 31)),
@@ -540,6 +601,8 @@ def draw_bigcore1_ui(stdscr, mem, selected, message, scroll_offset):
             ("bigcore1_gpll_div", BIGCORE1_CLKSEL_CON00, (1, 5), "int", None, (0, 31)),
             ("bigcore1_mux_sel", BIGCORE1_CLKSEL_CON00, (6, 7), "enum",
              {"slow": 0b00, "gpll": 0b01, "b1pll": 0b10}),
+            # ("bigcore1_pvtpll_sel", BIGCORE1_CLKSEL_CON01, (14, 14), "enum",  // requires updating of cal_cnt register (0x8)
+            #  {"bigcore1_mux": 0b0, "xin_osc0_func": 0b1,}),                   // no logic implemented
         ]),
         ("## core configuration ##", "CRU_BIGCORE1_BASE", [
             ("b2_uc_div", BIGCORE1_CLKSEL_CON00, (8, 12), "int", None, (0, 31)),
@@ -732,6 +795,8 @@ def draw_littlecore_ui(stdscr, mem, selected, message, scroll_offset):
             ("littlecore_gpll_div", DSU_CLKSEL_CON05, (9, 13), "int", None, (0, 31)),
             ("littlecore_mux_sel", DSU_CLKSEL_CON05, (14, 15), "enum",
              {"slow": 0b00, "gpll": 0b01, "lpll": 0b10}),
+            # ("littlecore_pvtpll_sel", DSU_CLKSEL_CON04, (9, 9), "enum",   // requires updating of cal_cnt register (0x48)
+            #  {"littlecore_mux": 0b0, "xin_osc0_func": 0b1,}),             // no logic implemented
         ]),
         ("## core configuration ##", "CRU_DSU_BASE", [
             ("l0_uc_div", DSU_CLKSEL_CON06, (0, 4), "int", None, (0, 31)),
@@ -935,6 +1000,8 @@ def draw_dsu_ui(stdscr, mem, selected, message, scroll_offset, lpll_freq=0, b0pl
             ("dsu_sclk_df_src_mux_div", DSU_CLKSEL_CON00, (7, 11), "int", None, (0, 31)),
             ("dsu_sclk_src_t_sel", DSU_CLKSEL_CON01, (0, 0), "enum",
              {"dsu_src": 0b0, "PVTPLL": 0b01}),
+            #("dsu_pvtpll_sel", DSU_CLKSEL_CON04, (10, 10), "enum", // requires updating of cal_cnt register (0x70)
+            # {"dsu_sclk_df_src": 0b0, "xin_osc0_func": 0b1,}),     // no logic implemented
         ]),
         ("## pclk_dsu configuration ##", "CRU_DSU_BASE", [
             ("dsu_pclk_root_mux_sel", DSU_CLKSEL_CON04, (5, 6), "enum",
@@ -1131,8 +1198,8 @@ def draw_gpu_ui(stdscr, mem, selected, message, scroll_offset):
             ("ring_length_sel", GRF_GPU_PVTPLL_CON0_H, (0, 5), "int", None, (0, 63)) #number of inventers = (n+20)*2
         ]),
         ("## gpu mux configuration ##", "CRU_BASE", [
-            ("gpu_pvtpll_sel", CRU_CLKSEL_CON158, (2, 2), "enum",
-             {"clk_gpu_src": 0b0, "xin_osc0_func": 0b1}),
+            # ("gpu_pvtpll_sel", CRU_CLKSEL_CON158, (2, 2), "enum",     // requires updating of cal_cnt register (0x8)
+            #  {"clk_gpu_src": 0b0, "xin_osc0_func": 0b1}),             // no logic implemented
             ("gpu_src_div", CRU_CLKSEL_CON158, (0, 4), "int", None, (0, 31)),
             ("gpu_src_sel", CRU_CLKSEL_CON158, (5, 7), "enum",
              {"gpll": 0b000, "cpll": 0b001, "aupll": 0b010, "npll": 0b011, "spll": 0b100}),            
@@ -1324,8 +1391,8 @@ def draw_npu_ui(stdscr, mem, selected, message, scroll_offset):
             ("rknn_dsu0_src_div", CRU_CLKSEL_CON73, (2, 6), "int", None, (0, 31)),
             ("rknn_dsu0_mux_sel", CRU_CLKSEL_CON74, (0, 0), "enum",
              {"dsu0_src": 0b0, "PVTPLL": 0b1}),
-            ("npu_pvtpll_sel", CRU_CLKSEL_CON74, (4, 4), "enum",
-             {"dsu0_src": 0b0, "xin_osc0_func": 0b1}),            
+            # ("npu_pvtpll_sel", CRU_CLKSEL_CON74, (4, 4), "enum",      // requires updating of cal_cnt register (0x14)
+            #  {"dsu0_src": 0b0, "xin_osc0_func": 0b1}),                // no logic implemented
             ("npu_cm0_rtc_div", CRU_CLKSEL_CON74, (7, 11), "int", None, (0, 31)),
         ]),
     ]
@@ -1767,21 +1834,21 @@ def tui(stdscr):
     selected_idx = [0] * NUM_TABS
 
     mem_map = {
-        1: Registers(CRU_BIGCORE0_BASE, CRU_SIZE),  # Bigcore0
-        1: Registers(GRF_BIGCORE0_BASE, CRU_SIZE),  # Bigcore0
-        2: Registers(CRU_BIGCORE1_BASE, CRU_SIZE),  # Bigcore1
-        2: Registers(GRF_BIGCORE1_BASE, CRU_SIZE),  # Bigcore1
-        3: Registers(CRU_DSU_BASE, CRU_SIZE),       # Littlecore
-        3: Registers(GRF_LITCORE_BASE, CRU_SIZE),   # Littlecore
-        4: Registers(CRU_DSU_BASE, CRU_SIZE),       # DSU
-        4: Registers(GRF_DSU_BASE, CRU_SIZE),       # DSU
-        5: Registers(CRU_BASE, CRU_SIZE),           # GPU
-        5: Registers(GRF_GPU_BASE, CRU_SIZE),       # GPU
-        6: Registers(GRF_NPU_BASE, CRU_SIZE),       # NPU
-        7: Registers(CRU_DDRPHY0_BASE, CRU_SIZE),   # DRAM
-        7: Registers(CRU_DDRPHY1_BASE, CRU_SIZE),   # DRAM
-        7: Registers(CRU_DDRPHY2_BASE, CRU_SIZE),   # DRAM
-        7: Registers(CRU_DDRPHY3_BASE, CRU_SIZE),   # DRAM
+        1: Registers(CRU_BIGCORE0_BASE, REG_SIZE),  # Bigcore0
+        1: Registers(GRF_BIGCORE0_BASE, REG_SIZE),  # Bigcore0
+        2: Registers(CRU_BIGCORE1_BASE, REG_SIZE),  # Bigcore1
+        2: Registers(GRF_BIGCORE1_BASE, REG_SIZE),  # Bigcore1
+        3: Registers(CRU_DSU_BASE, REG_SIZE),       # Littlecore
+        3: Registers(GRF_LITCORE_BASE, REG_SIZE),   # Littlecore
+        4: Registers(CRU_DSU_BASE, REG_SIZE),       # DSU
+        4: Registers(GRF_DSU_BASE, REG_SIZE),       # DSU
+        5: Registers(CRU_BASE, REG_SIZE),           # GPU
+        5: Registers(GRF_GPU_BASE, REG_SIZE),       # GPU
+        6: Registers(GRF_NPU_BASE, REG_SIZE),       # NPU
+        7: Registers(CRU_DDRPHY0_BASE, REG_SIZE),   # DRAM
+        7: Registers(CRU_DDRPHY1_BASE, REG_SIZE),   # DRAM
+        7: Registers(CRU_DDRPHY2_BASE, REG_SIZE),   # DRAM
+        7: Registers(CRU_DDRPHY3_BASE, REG_SIZE),   # DRAM
     }
 
     FLAT_FIELDS_BY_TAB = {
@@ -1841,9 +1908,9 @@ def tui(stdscr):
                 scroll_offsets[current_tab], FLAT_FIELDS_BY_TAB[current_tab] = draw_gpu_ui(stdscr, mem, selected, message, scroll_offset)
             elif current_tab == 6:
                 scroll_offsets[current_tab], FLAT_FIELDS_BY_TAB[current_tab] = draw_npu_ui(stdscr, mem, selected, message, scroll_offset)
+            #elif current_tab == 7:
+            #    scroll_offsets[current_tab], FLAT_FIELDS_BY_TAB[current_tab] = draw_dram_ui(stdscr, mem, selected, message, scroll_offset) // devmem read bus errors cause system freeze
             elif current_tab == 7:
-                scroll_offsets[current_tab], FLAT_FIELDS_BY_TAB[current_tab] = draw_dram_ui(stdscr, mem, selected, message, scroll_offset)
-            else:
                 draw_coming_soon(stdscr, current_tab, offset=3)
 
             stdscr.move(curses.LINES - 1, 0) 
@@ -1894,7 +1961,8 @@ def tui(stdscr):
                         try:
                             value = stdscr.getstr().decode('utf-8').strip()
                             current_flat_fields = FLAT_FIELDS_BY_TAB.get(current_tab, [])
-                            success = write_field(mem, fields[selected], value, message, current_flat_fields)
+                            success = write_field(mem, fields[selected], value, message, current_flat_fields,
+                                bigcore0_mux_clk=bigcore0_mux_clk)
                             if not success:
                                 # Show error in message box or log
                                 pass
@@ -1908,7 +1976,7 @@ def tui(stdscr):
 
     except KeyboardInterrupt:
         stdscr.clear()
-        exit_msg = "Exiting RK3588 Clock Config Tool. Thanks for playing! Press any key to exit."
+        exit_msg = "Exiting RK3588 OC Tool. Thanks for playing! Press any key to exit."
         stdscr.addstr(curses.LINES // 2, max((curses.COLS - len(exit_msg)) // 2, 0), exit_msg, curses.A_BOLD)
         stdscr.refresh()
         stdscr.getch()
