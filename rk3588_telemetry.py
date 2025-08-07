@@ -155,15 +155,28 @@ GRF_GPU_PVTPLL = 0x18
 GRF_NPU_PVTPLL = 0x24
 
 XIN_OSC0_FREQ       = 24        # RK3588 TRM
-DEEPSLOW_FREQ       = 0.032     # arbirary value
+DEEPSLOW_FREQ       = 0.032768  # RK3588 TRM
 CLEAN_FREQ          = 100       # arbirary value
 
-AUPLL_FREQ          = 786       # mmm tool
-CPLL_FREQ           = 1500      # mmm tool
-GPLL_FREQ           = 1188      # mmm tool
-NPLL_FREQ           = 850       # mmm tool
-SPLL_FREQ           = 702       # rk3588 dts
-V0PLL_FREQ          = 1188      # mmm tool
+AUPLL_FREQ          = 1572.9    # RK3588 Registers  [m=262, p=2, s=1, k=9437]
+CPLL_FREQ           = 1500      # RK3588 Registers  [m=250, p=2, s=1, k=0]
+GPLL_FREQ           = 1188      # RK3588 Registers  [m=425, p=2, s=1, k=0]
+PPLL_FREQ           = 2200      # RK3588 Registers  [m=550, p=3, s=1, k=0]   
+NPLL_FREQ           = 1700      # RK3588 Registers  [m=425, p=3, s=1]
+SPLL_FREQ           = 702       # rk3588 dts; can't read from devmem
+V0PLL_FREQ          = 1188      # RK3588 Registers  [m=198, p=2, s=1, k=0]
+
+                                # FRACPLL #
+                                #   FFVCO = ((m + k / 65536) * FFIN) / p
+                                #   FFOUT = ((m + k / 65536) * FFIN) / (p * 2s)
+
+                                # INTPLL #
+                                #   FFVCO = (m * FFIN) / p
+                                #   FFOUT = (m * FFIN) / (p * 2s)
+                                
+                                # DDRPLL #
+                                #   FFVCO = ((m + k / 65536) * 2 * FFIN) / p
+                                #   FFOUT = ((m + k / 65536) * 2 * FFIN) / (p * 2s)
 
 def get_bits(value, lsb, msb):
     mask = (1 << (msb - lsb + 1)) - 1
