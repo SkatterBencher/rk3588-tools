@@ -1961,8 +1961,7 @@ def tui(stdscr):
                         try:
                             value = stdscr.getstr().decode('utf-8').strip()
                             current_flat_fields = FLAT_FIELDS_BY_TAB.get(current_tab, [])
-                            success = write_field(mem, fields[selected], value, message, current_flat_fields,
-                                bigcore0_mux_clk=bigcore0_mux_clk)
+                            success = write_field(mem, fields[selected], value, message, current_flat_fields)
                             if not success:
                                 # Show error in message box or log
                                 pass
@@ -1990,3 +1989,4 @@ def tui(stdscr):
 
 if __name__ == "__main__":
     curses.wrapper(tui)
+
