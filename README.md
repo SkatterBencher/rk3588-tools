@@ -3,8 +3,12 @@ Tools for tuning the Rockchip RK3588
 - RK3588 OC Tool > for configuring the clocks
 - RK3588 Telemetry > for monitoring & logging
 
+[![License: CC BY-NC 4.0](https://licensebuttons.net/l/by-nc/4.0/88x31.png)](https://creativecommons.org/licenses/by-nc/4.0/)
+
 # RK3588 OC Tool
 sudo python3 rk3588-octool.py
+
+Brief explanation on the tool in SkatterBencher #89: https://skatterbencher.com/2025/08/23/skatterbencher-89-orange-pi-5-max-overclocked-to-2650-mhz/
 
 # RK3588 OC Tool
 This tool provides real-time telemetry monitoring for the RK3588 SoC (tested on Orange Pi 5 Max). It can run in two modes: TUI mode (interactive curses dashboard) or CLI mode (regular console output). It also supports CSV logging for post-analysis.
@@ -26,5 +30,3 @@ Enable individual metrics with flags: e.g. python3 telemetry.py -f -t -v
 Enable logging with -log
 
 This will create a timestamped CSV file (e.g., telemetry-20250822-153000.csv) containing all selected metrics.
-
-[![License: CC BY-NC 4.0](https://licensebuttons.net/l/by-nc/4.0/88x31.png)](https://creativecommons.org/licenses/by-nc/4.0/)
